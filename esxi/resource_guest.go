@@ -28,6 +28,13 @@ func resourceGUEST() *schema.Resource {
 				Default:     nil,
 				Description: "Source vm path on esxi host to clone.",
 			},
+			"use_vmkfstools": &schema.Schema{
+				Type:        schema.TypeString,
+				Optional:    true,
+				ForceNew:    true,
+				Default:     nil,
+				Description: "Use vmkfstools to clone VMs.",
+			},
 			"host_ovf": &schema.Schema{
 				Type:        schema.TypeString,
 				Optional:    true,
@@ -241,10 +248,12 @@ func resourceGUESTCreate(d *schema.ResourceData, m interface{}) error {
 	var virtual_networks [10][3]string
 	var virtual_disks [60][2]string
 	var src_path string
+	var src_path_vmx string
 	var tmpint, i, virtualDiskCount, ovfPropsCount, guest_shutdown_timeout, ovf_properties_timer int
 	var ovf_properties map[string]string
 
 	clone_from_vm := d.Get("clone_from_vm").(string)
+	use_vmkfstools := d.Get("use_vmkfstools").(string)
 	ovf_source := d.Get("ovf_source").(string)
 	disk_store := d.Get("disk_store").(string)
 	resource_pool_name := d.Get("resource_pool_name").(string)
@@ -289,8 +298,13 @@ func resourceGUESTCreate(d *schema.ResourceData, m interface{}) error {
 	}
 
 	if clone_from_vm != "" {
-		password := url.QueryEscape(c.esxiPassword)
-		src_path = fmt.Sprintf("vi://%s:%s@%s:%s/%s", c.esxiUserName, password, c.esxiHostName, c.esxiHostSSLport, clone_from_vm)
+		if use_vmkfstools == "true" {
+			src_path = fmt.Sprintf("/vmfs/volumes/%s/%s/%s.vmdk", disk_store, clone_from_vm, clone_from_vm)
+			src_path_vmx = fmt.Sprintf("/vmfs/volumes/%s/%s/%s.vmx", disk_store, clone_from_vm, clone_from_vm)
+		} else {
+			password := url.QueryEscape(c.esxiPassword)
+			src_path = fmt.Sprintf("vi://%s:%s@%s:%s/%s", c.esxiUserName, password, c.esxiHostName, c.esxiHostSSLport, clone_from_vm)
+		}
 	} else if ovf_source != "" {
 		src_path = ovf_source
 	} else {
@@ -400,7 +414,7 @@ func resourceGUESTCreate(d *schema.ResourceData, m interface{}) error {
 		}
 	}
 
-	vmid, err := guestCREATE(c, guest_name, disk_store, src_path, resource_pool_name, memsize,
+	vmid, err := guestCREATE(c, guest_name, use_vmkfstools, disk_store, src_path, src_path_vmx, resource_pool_name, memsize,
 		numvcpus, virthwver, guestos, boot_disk_type, boot_disk_size, virtual_networks, boot_firmware,
 		virtual_disks, guest_shutdown_timeout, ovf_properties_timer, notes, guestinfo, ovf_properties)
 	if err != nil {
